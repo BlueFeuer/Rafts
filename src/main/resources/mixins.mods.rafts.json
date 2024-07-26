@@ -1,0 +1,11 @@
+{
+  "minVersion": "0.8",
+  "package": "com.bluefire.rafts.mixins",
+  "refmap": "mixins.rafts.refmap.json",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [
+    "BoatMixin"
+  ],
+  "client": [],
+  "server": []
+}

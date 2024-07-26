@@ -1,0 +1,16 @@
+[
+{
+  "modid": "rafts",
+  "name": "Rafts",
+  "description": "Adds sailing rafts that can be walked on to the game and changes up boat controls.",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["BlueFeuer"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]
