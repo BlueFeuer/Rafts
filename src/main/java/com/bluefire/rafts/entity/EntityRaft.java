@@ -105,6 +105,8 @@ public class EntityRaft extends EntityLiving implements IAnimatable {
 
     // Platform system
 
+    public double forwardMomentum = 0d;
+
     public static final int momentumTicks = 20;
 
     private List<EntityPlatform> platforms = new ArrayList<>();
@@ -427,99 +429,95 @@ public class EntityRaft extends EntityLiving implements IAnimatable {
 
         // handle boat movement
 
-        float steeringTarget = ((float)this.getSteeringWheel()) * 0.001f;
-        if (this.turningRate > steeringTarget) {
-            this.turningRate -= this.getSteerAcceleration();
-            if (this.turningRate < steeringTarget)
-                this.turningRate = steeringTarget;
-        } else if (this.turningRate < steeringTarget) {
-            this.turningRate += this.getSteerAcceleration();
-            if (this.turningRate > steeringTarget)
-                this.turningRate = steeringTarget;
+        float yawChange = 0f;
+        double yChange = 0f;
+
+        if (!this.world.isRemote) {
+            // Server side movement
+
+            // accelerate turning rate
+            float steeringTarget = ((float)this.getSteeringWheel()) * 0.001f;
+            if (this.turningRate > steeringTarget) {
+                this.turningRate -= this.getSteerAcceleration();
+                if (this.turningRate < steeringTarget)
+                    this.turningRate = steeringTarget;
+            } else if (this.turningRate < steeringTarget) {
+                this.turningRate += this.getSteerAcceleration();
+                if (this.turningRate > steeringTarget)
+                    this.turningRate = steeringTarget;
+            }
+
+            // add turning rate to yaw
+            yawChange += this.turningRate;
+
+            // rotate the ship
+            this.rotationYaw = this.rotationYaw + yawChange;
+            this.setRotation(this.rotationYaw, this.rotationPitch);
+            this.renderYawOffset = this.rotationYaw;
+
+            // apply forwardMomentum drag
+            float forwardDrag = this.getDrag(); // default 0.96
+            this.forwardMomentum *= forwardDrag;
+
+            // apply motion drag
+            float drag = 0.7f; // default 0.7
+            this.motionX *= drag;
+            this.motionZ *= drag;
+
+            // accelerate forwardMomentum
+            float speedMult = 1.0f;
+            float sails = ((float)this.getSails()) * 0.001f;
+            float speed = this.getSpeed() * speedMult * sails;
+            this.forwardMomentum += speed;
+
+            // accelerate motion by forwardMomentum
+            float f = this.rotationYaw * 0.017453292F;
+            this.motionX -= (double)(MathHelper.sin(f) * this.forwardMomentum);
+            this.motionZ += (double)(MathHelper.cos(f) * this.forwardMomentum);
+
+            // set the amount the Y has changed
+            yChange = this.motionY;
+
+            // move the ship
+            this.move(MoverType.SELF, this.motionX, this.motionY, this.motionZ );
+
+            // send sync packet to client
+            if (this.ticksExisted % 2 == 0) {
+                new RaftSyncPacket(this.getEntityId(), this.posX, this.posY, this.posZ, (double) this.rotationYaw).sendPacketToAllAround(this.world, this.posX, this.posY, this.posZ, 256.0d);
+            }
+
+        } else {
+            // Client side movement
+
+            if (this.ticksSinceLastSync > -1) {
+                this.ticksSinceLastSync++;
+                double tickDelay = 6d;
+                double percent = ((double)this.ticksSinceLastSync) / tickDelay;
+                if (percent > 1d) {
+                    percent = 1d;
+                }
+
+                // rotate the ship
+                float oldRotation = this.rotationYaw;
+                this.rotationYaw = (float)this.oldYaw + (float)adjustAngle(this.oldYaw, this.targetYaw, 0d, percent);
+                yawChange = this.rotationYaw - oldRotation;
+
+                this.setRotation(this.rotationYaw, this.rotationPitch);
+                this.renderYawOffset = this.rotationYaw;
+
+                // get the amount to move the ship
+                double moveX = -this.posX + this.oldX + adjust(this.oldX, this.targetX, 0d, percent);
+                double moveY = -this.posY + this.oldY + adjust(this.oldY, this.targetY, 0d, percent);
+                double moveZ = -this.posZ + this.oldZ + adjust(this.oldZ, this.targetZ, 0d, percent);
+
+                // move the ship
+                this.move(MoverType.SELF, moveX, moveY, moveZ);
+
+                // set the amount the Y has changed
+                yChange = this.posY - this.prevPosY;
+            }
+
         }
-
-        float yawChange = 0;
-
-        double dX = 0d;
-        double dY = 0d;
-        double dZ = 0d;
-
-        if (this.world.isRemote) {
-            double debtMult = syncDebtPayment;
-            double debtClear = 1d - debtMult;
-            this.ticksSinceLastSync++;
-
-            log.info("*Raft *{}* debt synced, adding x*{}* y*{}* z*{}* mX*{}* mY*{}* mZ*{}* yaw*{}* turning*{}",
-                    this.getEntityId(),
-                    this.debtX*debtMult,
-                    this.debtY*debtMult,
-                    this.debtZ*debtMult,
-                    this.debtMotionX*debtMult,
-                    this.debtMotionY*debtMult,
-                    this.debtMotionZ*debtMult,
-                    this.debtTurning*debtMult,
-                    this.debtYaw*debtMult
-            );
-
-            dX += this.debtX*debtMult;
-            dY += this.debtY*debtMult;
-            dZ += this.debtZ*debtMult;
-            yawChange += (float)(this.debtYaw*debtMult);
-            this.motionX += this.debtMotionX*debtMult;
-            this.motionY += this.debtMotionY*debtMult;
-            this.motionZ += this.debtMotionZ*debtMult;
-            this.turningRate += (float)(this.debtTurning*debtMult);
-
-            this.debtX = this.debtX*debtClear;
-            this.debtY = this.debtY*debtClear;
-            this.debtZ = this.debtZ*debtClear;
-            this.debtMotionX = this.debtMotionX*debtClear;
-            this.debtMotionY = this.debtMotionY*debtClear;
-            this.debtMotionZ = this.debtMotionZ*debtClear;
-            this.debtTurning = this.debtTurning*debtClear;
-            this.debtYaw = this.debtYaw*debtClear;
-        }
-
-        yawChange += this.turningRate;
-
-        float drag = this.getDrag();
-        this.motionX *= drag;
-        this.motionY *= drag;
-        this.motionZ *= drag;
-
-        float speedMult = 1.0f;
-        float sails = ((float)this.getSails()) * 0.001f;
-        float speed = this.getSpeed() * speedMult * sails;
-
-        float f = this.rotationYaw * 0.017453292F;
-        this.motionX -= (double)(MathHelper.sin(f) * speed);
-        this.motionZ += (double)(MathHelper.cos(f) * speed);
-
-        double yChange = this.motionY;
-
-        this.rotationYaw = this.rotationYaw + yawChange;
-        //this.interpTargetYaw = this.rotationYaw;
-        this.setRotation(this.rotationYaw, this.rotationPitch);
-        this.renderYawOffset = this.rotationYaw;
-
-        // resync
-        if (!this.world.isRemote && this.ticksExisted % 2 == 0) {
-            new RaftSyncPacket(this.getEntityId(), this.posX, this.posY, this.posZ, (double) this.rotationYaw, this.motionX, this.motionY, this.motionZ, (double) this.turningRate).sendPacketToAllAround(this.world, this.posX, this.posY, this.posZ, 256.0d);
-
-            log.info("*Raft *{}* debt packet sent with x*{}* y*{}* z*{}* mX*{}* mY*{}* mZ*{}* yaw*{}* turning*{}",
-                    this.getEntityId(),
-                    this.posX,
-                    this.posY,
-                    this.posZ,
-                    this.motionX,
-                    this.motionY,
-                    this.motionZ,
-                    (double) this.rotationYaw,
-                    (double) this.turningRate
-            );
-        }
-
-        this.move(MoverType.SELF, this.motionX+dX, this.motionY+dY, this.motionZ+dZ );
 
         final float velocityMult = 1.098f;
         // convert relative coords back to real coords for stored entities and move them to new positions
@@ -578,17 +576,58 @@ public class EntityRaft extends EntityLiving implements IAnimatable {
 
     }
 
-    public final static double syncDebt = 0.3d;
-    public final static double syncDebtPayment = 0.3f;
-    public int ticksSinceLastSync = 0;
-    public double debtX = 0d;
-    public double debtY = 0d;
-    public double debtZ = 0d;
-    public double debtYaw = 0d;
-    public double debtMotionX = 0d;
-    public double debtMotionY = 0d;
-    public double debtMotionZ = 0d;
-    public double debtTurning = 0d;
+    public double adjust(double current, double target, double minimum, double percent) {
+        double adjustment = target-current;
+        if (adjustment == 0d)
+            return 0d;
+        double mult = 1d;
+        if (adjustment < 0) {
+            mult = -1d;
+            adjustment *= -1d;
+        }
+        adjustment = Math.min(Math.max(minimum, adjustment*percent), adjustment);
+        return adjustment*mult;
+    }
+
+    public double adjustAngle(double current, double target, double minimum, double percent) {
+        double adjustment = target-current;
+        adjustment = ((adjustment + 540) % 360) - 180;
+        if (adjustment == 0d)
+            return 0d;
+        double mult = 1d;
+        if (adjustment < 0) {
+            mult = -1d;
+            adjustment *= -1d;
+        }
+        adjustment = Math.min(Math.max(minimum, adjustment*percent), adjustment);
+        return (((adjustment*mult) + 540) % 360) - 180;
+    }
+
+    // Client variables
+
+    public int ticksSinceLastSync = -2147483647;
+    public double targetX = 0d;
+    public double targetY = 0d;
+    public double targetZ = 0d;
+    public double targetYaw = 0d;
+    public double oldX = 0d;
+    public double oldY = 0d;
+    public double oldZ = 0d;
+    public double oldYaw = 0d;
+
+    public void sync(double x, double y, double z, double yaw)
+    {
+        this.targetX = x;
+        this.targetY = y;
+        this.targetZ = z;
+        this.targetYaw = yaw;
+        this.oldX = this.posX;
+        this.oldY = this.posY;
+        this.oldZ = this.posZ;
+        this.oldYaw = this.rotationYaw;
+        this.ticksSinceLastSync = 0;
+    }
+
 
     @Override
     @SideOnly(Side.CLIENT)
@@ -596,45 +635,17 @@ public class EntityRaft extends EntityLiving implements IAnimatable {
     {
         if (teleport) {
             super.setPositionAndRotationDirect(x, y, z, yaw, pitch, posRotationIncrements, true);
-            this.debtX = 0d;
-            this.debtY = 0d;
-            this.debtZ = 0d;
-            this.debtYaw = 0d;
-            this.debtMotionX = 0d;
-            this.debtMotionY = 0d;
-            this.debtMotionZ = 0d;
-            this.debtTurning = 0d;
+            this.targetX = x;
+            this.targetY = y;
+            this.targetZ = z;
+            this.targetYaw = yaw;
+            this.oldX = x;
+            this.oldY = y;
+            this.oldZ = z;
+            this.oldYaw = yaw;
+            this.ticksSinceLastSync = 0;
         }
     }
-
-    public void sync(double x, double y, double z, double yaw, double mX, double mY, double mZ, double turning)
-    {
-        double debtMult = Math.min(syncDebt*(double)ticksSinceLastSync, 1.0d);
-        double debtClear = 1d - debtMult;
-        this.ticksSinceLastSync = 0;
-
-        this.debtX = this.debtX*debtClear + (x - this.posX)*debtMult;
-        this.debtY = this.debtY*debtClear + (y - this.posY)*debtMult;
-        this.debtZ = this.debtZ*debtClear + (z - this.posZ)*debtMult;
-        this.debtYaw = this.debtYaw*debtClear + (yaw - this.rotationYaw)*debtMult;
-        this.debtMotionX = this.debtMotionX*debtClear + (mX - this.motionX)*debtMult;
-        this.debtMotionY = this.debtMotionY*debtClear + (mY - this.motionY)*debtMult;
-        this.debtMotionZ = this.debtMotionZ*debtClear + (mZ - this.motionZ)*debtMult;
-        this.debtTurning = this.debtTurning*debtClear + (turning - this.turningRate)*debtMult;
-
-        log.info("*Raft *{}* debt accrued, setting debt to x*{}* y*{}* z*{}* mX*{}* mY*{}* mZ*{}* yaw*{}* turning*{}",
-                this.getEntityId(),
-                this.debtX,
-                this.debtY,
-                this.debtZ,
-                this.debtMotionX,
-                this.debtMotionY,
-                this.debtMotionZ,
-                this.debtTurning,
-                this.debtYaw
-        );
-    }
-    
 
     @Override
     @SideOnly(Side.CLIENT)
@@ -644,6 +655,7 @@ public class EntityRaft extends EntityLiving implements IAnimatable {
         this.motionY = y;
         this.motionZ = z;
     }
+
     @Override
     public void setPositionAndRotation(double x, double y, double z, float yaw, float pitch)
     {

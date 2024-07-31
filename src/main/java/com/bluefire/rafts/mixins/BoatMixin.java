@@ -35,6 +35,8 @@ import java.util.UUID;
 @Mixin(EntityBoat.class)
 public abstract class BoatMixin extends Entity {
 
+    // TODO: Make boats work like BL Rowboats (optionally, with configuration)
+
     public BoatMixin(World worldIn)
     {
         super(worldIn);

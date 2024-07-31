@@ -17,6 +17,8 @@ import net.minecraft.util.EnumParticleTypes;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.Vec2f;
 import net.minecraft.world.World;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 
 import javax.annotation.Nullable;
 import java.util.HashSet;
@@ -132,7 +134,8 @@ public class EntityInteractable extends Entity {
             Entity host = this.getHost();
             this.setSize(this.getWidth(), this.getHeight());
             Vec2d relative = fromRelativeCoordinates(this.getOffsetX(), this.getOffsetZ(), host);
-            this.setPositionAndUpdate(relative.x, host.posY + this.getOffsetY(), relative.y);
+            this.setPosition(relative.x, host.posY + this.getOffsetY(), relative.y);
+            this.world.updateEntityWithOptionalForce(this, false);
         }
         if (!this.hasHost() && !this.world.isRemote) {
             this.delete();
@@ -145,6 +148,30 @@ public class EntityInteractable extends Entity {
             if (this.getType() == Types.SAIL)
                 this.world.spawnParticle(EnumParticleTypes.END_ROD, this.posX, this.posY+(height/2f), this.posZ, 0.0D, 0.0D, 0.0D);
         }
+    }
+
+
+    @Override
+    @SideOnly(Side.CLIENT)
+    public void setPositionAndRotationDirect(double x, double y, double z, float yaw, float pitch, int posRotationIncrements, boolean teleport)
+    {
+        if (teleport) {
+            super.setPositionAndRotationDirect(x, y, z, yaw, pitch, posRotationIncrements, true);
+        }
+    }
+
+    @Override
+    @SideOnly(Side.CLIENT)
+    public void setVelocity(double x, double y, double z)
+    {
+        this.motionX = x;
+        this.motionY = y;
+        this.motionZ = z;
+    }
+
+    @Override
+    public void setPositionAndRotation(double x, double y, double z, float yaw, float pitch)
+    {
     }
 
     @Override

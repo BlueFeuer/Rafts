@@ -17,10 +17,6 @@ public class RaftSyncPacket implements ServerToClientPacket {
     double y;
     double z;
     double yaw;
-    double motionX;
-    double motionY;
-    double motionZ;
-    double turningRate;
 
 
     @Override
@@ -28,7 +24,7 @@ public class RaftSyncPacket implements ServerToClientPacket {
         World world = mc.player.world;
         Entity en = world.getEntityByID(entityID);
         if (en instanceof EntityRaft) {
-            ((EntityRaft) en).sync(x, y, z, yaw, motionX, motionY, motionZ, turningRate);
+            ((EntityRaft) en).sync(x, y, z, yaw);
         }
     }
 
